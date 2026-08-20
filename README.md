@@ -48,6 +48,18 @@ capped. Compactness is the product.
 
 If `__amzx` is `undefined` on an Amazon page, see the `@grant none` note in *Maintenance*.
 
+### The companion skill
+
+[`skill/SKILL.md`](skill/SKILL.md) is a Claude Code skill carrying the research playbook — the
+search-URL parameters worth building by hand, how to report a comparison, and a listing-vetting
+checklist. Install it at user scope:
+
+```bash
+mkdir -p ~/.claude/skills/amazon-shopping && cp skill/SKILL.md ~/.claude/skills/amazon-shopping/
+```
+
+It is a copy, not a link — re-run that after pulling changes.
+
 ## Scope, deliberately narrow
 
 The script reads the DOM and, only when the caller passes `{deep:true}`, issues same-origin GETs

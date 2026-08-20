@@ -14,6 +14,12 @@ three or four products.
 
 ## The loop
 
+0. If the Chrome tools are deferred, load them in **one** ToolSearch call — don't spend a
+   round-trip per tool:
+   `select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__tabs_close_mcp`
+   Use claude-in-chrome, not the in-app browser: prices, Prime eligibility, delivery estimates and
+   the `Purchased …` badge all depend on the user's logged-in session, and the userscript is
+   installed in their real browser. Close any tab you opened when you're done.
 1. Navigate the tab to an Amazon URL (build it with the parameters below — don't click through UI).
 2. `await __amzx.full()` — or `{deep:true}` on a product page you're seriously considering.
 3. Check `_missing` and `_warn`. If they're substantial, run `__amzx.health()` before trusting it.
