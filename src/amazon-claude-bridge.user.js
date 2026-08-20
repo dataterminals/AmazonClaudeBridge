@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Amazon Claude Bridge
 // @namespace    https://github.com/dataterminals/AmazonClaudeBridge
-// @version      0.2.0
+// @version      0.2.1
 // @description  Read-only extractor library for amazon.com. Exposes window.__amzx so an assistant driving the browser can pull a compact, de-sponsored JSON record of the current page instead of reading a 60 KB accessibility tree. Never clicks a buy control, submits a form, or reads credentials.
 // @author       dataterminals
 // @homepageURL  https://github.com/dataterminals/AmazonClaudeBridge
@@ -55,7 +55,7 @@
 //
 'use strict';
 (function () {
-  const VERSION = '0.2.0';
+  const VERSION = '0.2.1';
 
   /* ---------------------------------------------------------------- utils */
 
@@ -108,13 +108,19 @@
   };
 
   // "$1,234.56" / "US$12.34" / "12,34 EUR" -> 1234.56 . Returns null rather than NaN.
+  //
+  // Takes the FIRST well-formed amount rather than stripping separators across the whole
+  // string. Amazon renders a price twice inside one node (offscreen + visible), so "$9.99$9.99"
+  // stripped to "9.999.99" parses as 9.999 — a plausible-looking wrong number, which is the
+  // worst kind. Seen live in the all-sellers panel: $18.29 arrived as 18.2918.
   const money = (s) => {
     const c = clean(s);
     if (!c) return null;
-    const m = c.replace(/[^\d.,]/g, '');
+    const m = c.match(/\d[\d.,]*/);
     if (!m) return null;
-    // If the last separator is a comma with exactly 2 digits after, treat it as a decimal comma.
-    const norm = /,\d{2}$/.test(m) ? m.replace(/\./g, '').replace(',', '.') : m.replace(/,/g, '');
+    const t = m[0].replace(/[.,]+$/, '');
+    // A trailing comma with exactly 2 digits after it is a decimal comma, not a thousands mark.
+    const norm = /,\d{2}$/.test(t) ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
     const n = parseFloat(norm);
     return Number.isFinite(n) ? n : null;
   };

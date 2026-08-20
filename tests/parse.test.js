@@ -64,6 +64,13 @@ eq('money decimal comma', money('12,34 EUR'), 12.34);
 eq('money grouped decimal comma', money('1.234,56'), 1234.56);
 eq('money no number', money('Currently unavailable'), null);
 eq('money null', money(null), null);
+// Doubled renders, seen live in the all-sellers panel. Stripping separators across the whole
+// string turned "$18.29$18.29" into 18.2918 — wrong, but plausible enough to go unnoticed.
+eq('money doubled render', money('$9.99$9.99'), 9.99);
+eq('money doubled render, larger', money('$18.29$18.29'), 18.29);
+eq('money doubled with thousands', money('$1,234.56$1,234.56'), 1234.56);
+eq('money space separated repeat', money('$9.89 $9.89'), 9.89);
+eq('money leading label', money('Price: $7.50'), 7.5);
 
 /* ----------------------------------------------------------- currency() --- */
 eq('currency usd', currency('$9.99'), 'USD');
