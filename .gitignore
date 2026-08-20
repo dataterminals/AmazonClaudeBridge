@@ -1,0 +1,10 @@
+# Local capture store — NEVER commit. Contains order history, prices paid,
+# and shortlists tied to a real account. The repo is public; the store is not.
+/store/
+*.local.json
+
+# Editor / OS noise
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
