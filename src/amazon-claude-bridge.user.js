@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Amazon Claude Bridge
 // @namespace    https://github.com/dataterminals/AmazonClaudeBridge
-// @version      0.1.0
+// @version      0.2.0
 // @description  Read-only extractor library for amazon.com. Exposes window.__amzx so an assistant driving the browser can pull a compact, de-sponsored JSON record of the current page instead of reading a 60 KB accessibility tree. Never clicks a buy control, submits a form, or reads credentials.
 // @author       dataterminals
 // @homepageURL  https://github.com/dataterminals/AmazonClaudeBridge
@@ -28,10 +28,16 @@
 //     and working while the whole point of it silently fails. If you ever genuinely need a
 //     GM API, keep the grant AND publish the API with `unsafeWindow.__amzx = API` instead.
 //
-//   * READ-ONLY, and narrowly so. DOM reads plus same-origin GETs of pages the signed-in user
-//     could reach by clicking. No writes, no form submits, no buy/checkout controls, no
-//     credential access, no third-party endpoints, no background crawling. Deep fetches happen
-//     only when the caller explicitly opts in via full({deep:true}).
+//   * READ-ONLY, and narrowly so. DOM reads of the page the caller navigated to. Nothing else:
+//     no writes, no form submits, no buy/checkout controls, no credential access, no network
+//     requests of any kind, no background crawling.
+//
+//   * THERE IS NO FETCH PATH, and that is deliberate. v0.1.0 fetched sub-pages for offers and
+//     critical reviews. Both were dead on arrival (see the `offers` section below): the AJAX
+//     endpoints 404, the offers panel renders client-side, and Amazon ignores
+//     filterByStar=critical over fetch AND over real navigation. The caller drives the browser,
+//     so the caller navigates; these functions read whatever is in front of them and report a
+//     `_needs` hint when the data requires a different URL.
 //
 //   * COMPACTNESS IS THE PRODUCT. The reason to exist is that the caller pays per token. Every
 //     field is capped and trimmed and empty values are dropped. If you add a field, ask what
@@ -49,7 +55,7 @@
 //
 'use strict';
 (function () {
-  const VERSION = '0.1.0';
+  const VERSION = '0.2.0';
 
   /* ---------------------------------------------------------------- utils */
 
@@ -261,12 +267,19 @@
       histRow:    ['#histogramTable tr', '[data-hook="histogram-row"]'],
     },
     offers: {
-      row:        ['#aod-offer', 'div[id^="aod-offer"]'],
-      oPrice:     ['.a-price .a-offscreen', '#aod-offer-price .a-offscreen'],
+      // `div[id^="aod-offer"]` is WRONG and was the original bug: every child div inside an
+      // offer is also id-prefixed "aod-offer" (aod-offer-price, aod-offer-soldBy, ...), so it
+      // returned 39 "offers" for a product with 3. The real containers are the pinned buy-box
+      // offer plus each div#aod-offer. Verified 2026-08-20.
+      row:        ['#aod-pinned-offer', 'div#aod-offer'],
+      // Same empty-.a-offscreen and CSS-in-container traps as the main price block; txtOf()
+      // strips the <style> payload out of #aod-offer-price.
+      oPrice:     ['[id^="aod-price-"] .a-offscreen', '#aod-offer-price .a-offscreen',
+                   '[id^="aod-price-"]', '#aod-offer-price'],
       oSeller:    ['#aod-offer-soldBy .a-col-right a', '#aod-offer-soldBy .a-col-right span',
                    '[id^="aod-offer-soldBy"] .a-col-right'],
       oShip:      ['#aod-offer-shipsFrom .a-col-right span', '[id^="aod-offer-shipsFrom"] .a-col-right'],
-      oCondition: ['#aod-offer-heading', '.a-text-bold'],
+      oCondition: ['#aod-offer-heading'],
     },
   };
 
@@ -481,9 +494,7 @@
       const m = label ? label.match(/^([1-5])\s*star/i) : null;
       if (m && pct) dist[m[1] + 'star'] = pct;
     }
-    return compact({
-      distribution: dist,
-      sample: cards.map((c) => {
+    const sample = cards.map((c) => {
         const sm = (pickText(S.rStars, c) || '').match(/([\d.]+)/);
         const dt = pickText(S.rDate, c);
         return compact({
@@ -494,40 +505,51 @@
           helpful: num(pickText(S.rHelpful, c)),
           body: clip(pickText(S.rBody, c), 300),
         });
-      }),
     });
+
+    // Amazon ignores filterByStar=critical. Verified 2026-08-20: navigating (not fetching —
+    // navigating) to the critical-filter URL still returned eight 4-and-5-star reviews. An
+    // assistant that trusts the URL will report "the critical reviews look fine" having never
+    // seen a critical review, which is worse than having no feature. Catch the lie here.
+    const askedCritical = /filterByStar=critical/.test(location.search);
+    const anyCritical = sample.some((r) => r.stars && r.stars <= 3);
+    const out = compact({ distribution: dist, sample: sample }) || {};
+    if (askedCritical && sample.length && !anyCritical) {
+      out._warn = 'Requested filterByStar=critical but every returned review is 4-5 stars: '
+        + 'Amazon ignored the filter. These are NOT critical reviews — do not report them as such.';
+    }
+    return out;
   }
 
-  /* ------------------------------------------------- deep (same-origin GET) */
+  /* ----------------------------------------------------------------- offers */
+  //
+  // These used to fetch sub-pages. That is dead — verified 2026-08-20:
+  //
+  //   * Every all-offers-display AJAX endpoint returns 404 (three URL shapes tried).
+  //   * /dp/<ASIN>?aod=1 fetched over XHR returns the page WITHOUT the offers panel; it is
+  //     rendered client-side.
+  //   * /product-reviews/<ASIN>/?filterByStar=critical returns the same 4-5 star reviews as
+  //     the product page, over both fetch AND real navigation. Amazon ignores the filter.
+  //
+  // So there is no fetch path. The caller navigates, and these read the live DOM — which is
+  // fine, because the caller drives the browser anyway. Read `_needs` on the result: it says
+  // where to navigate to make the data appear, instead of silently returning nothing.
 
-  async function fetchDoc(url) {
-    const res = await fetch(url, { credentials: 'include', headers: { 'Accept': 'text/html' } });
-    if (!res.ok) throw new Error(res.status + ' ' + res.statusText + ' for ' + url);
-    return new DOMParser().parseFromString(await res.text(), 'text/html');
-  }
-
-  // Every seller for an ASIN — the buy box hides these, and the cheapest is often not the default.
-  async function offers(asin) {
-    asin = asin || asinFrom(location.href);
-    if (!asin) return null;
+  // All sellers for the product. Requires the caller to be on /dp/<ASIN>?aod=1 — the buy box
+  // shows one seller and the cheapest is frequently not it.
+  function offers() {
     const S = SEL.offers;
-    const doc = await fetchDoc('https://www.amazon.com/gp/product/ajax/ref=aod_f_new?asin=' +
-      asin + '&pc=dp&experienceId=aodAjaxMain');
-    return compact($$(S.row.join(','), doc).slice(0, 10).map((r) => compact({
+    const rows = $$(S.row.join(','));
+    if (!rows.length) {
+      return { _needs: 'navigate to https://www.amazon.com/dp/' + (asinFrom(location.href) || '<ASIN>') +
+        '?aod=1 — the all-sellers panel renders client-side and is not on the plain product page' };
+    }
+    return compact(rows.slice(0, 10).map((r) => compact({
       price: money(pickText(S.oPrice, r)),
       seller: clip(pickText(S.oSeller, r), 50),
       shipsFrom: clip(pickText(S.oShip, r), 50),
       condition: clip(pickText(S.oCondition, r), 40),
     })));
-  }
-
-  // Verified-purchase critical reviews, newest first — where real defects surface.
-  async function criticalReviews(asin, limit) {
-    asin = asin || asinFrom(location.href);
-    if (!asin) return null;
-    const url = 'https://www.amazon.com/product-reviews/' + asin +
-      '/?sortBy=recent&filterByStar=critical&reviewerType=avp_only_reviews&pageNumber=1';
-    return reviewsOn(await fetchDoc(url), { limit: limit == null ? 6 : limit });
   }
 
   /* ------------------------------------------------------------------ full */
@@ -544,17 +566,11 @@
     try {
       if (meta.type === 'product') {
         out.product = product();
-        if (opts.deep) {
-          const settled = await Promise.allSettled([offers(meta.asin), criticalReviews(meta.asin)]);
-          if (settled[0].status === 'fulfilled' && settled[0].value) out.offers = settled[0].value;
-          if (settled[1].status === 'fulfilled' && settled[1].value) out.criticalReviews = settled[1].value;
-          for (const r of settled) {
-            if (r.status === 'rejected') {
-              out._warn = out._warn || [];
-              out._warn.push(String((r.reason && r.reason.message) || r.reason));
-            }
-          }
-        }
+        // The all-sellers panel exists only when the caller navigated with ?aod=1. Include it
+        // when it is genuinely on the page; otherwise pass along where to go to get it.
+        const o = offers();
+        if (o && !o._needs) out.offers = o;
+        else if (o && o._needs) out.offersHint = o._needs;
       } else if (meta.type === 'search') {
         out.search = searchResults(opts);
       } else if (meta.type === 'reviews') {
@@ -615,7 +631,6 @@
     search: searchResults,
     reviews: reviewsOn,
     offers: offers,
-    criticalReviews: criticalReviews,
     full: full,
     health: health,
     text: text,

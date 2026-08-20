@@ -127,7 +127,7 @@ eq('txtOf passes plain nodes through', txtOf(plain), 'Anker');
 eq('txtOf null element', txtOf(null), null);
 
 /* ------------------------------------------------------- surface check --- */
-for (const fn of ['page', 'product', 'search', 'reviews', 'offers', 'criticalReviews',
+for (const fn of ['page', 'product', 'search', 'reviews', 'offers',
                   'full', 'health', 'text']) {
   eq(`API exposes ${fn}()`, typeof amzx[fn], 'function');
 }
