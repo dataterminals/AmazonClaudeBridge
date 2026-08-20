@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Amazon Claude Bridge
 // @namespace    https://github.com/dataterminals/AmazonClaudeBridge
-// @version      0.2.1
+// @version      0.3.0
 // @description  Read-only extractor library for amazon.com. Exposes window.__amzx so an assistant driving the browser can pull a compact, de-sponsored JSON record of the current page instead of reading a 60 KB accessibility tree. Never clicks a buy control, submits a form, or reads credentials.
 // @author       dataterminals
 // @homepageURL  https://github.com/dataterminals/AmazonClaudeBridge
@@ -22,11 +22,12 @@
 //     driving this browser, which navigates to a URL and then evaluates `__amzx.full()`.
 //     Cosmetics live in the sibling repo AmazonTweaks; keep the two apart.
 //
-//   * `@grant none` IS LOAD-BEARING. Do not add a GM_* grant casually. With any grant,
-//     Tampermonkey runs this in a sandboxed scope whose `window` is NOT the page's `window`,
-//     and `__amzx` becomes invisible to an external evaluator — the script appears installed
-//     and working while the whole point of it silently fails. If you ever genuinely need a
-//     GM API, keep the grant AND publish the API with `unsafeWindow.__amzx = API` instead.
+//   * IT PUBLISHES ITSELF VIA A <script> TAG, and that is not decoration — see the loader at
+//     the bottom. Whether a userscript's `window` is the page's `window` depends on how the
+//     extension injected it, which the script cannot observe. v0.1.0 relied on `@grant none`
+//     meaning main-world, installed fine, and left `__amzx` undefined with no error anywhere.
+//     A <script> element always evaluates in the main world because the DOM is shared, so the
+//     loader is correct under every injection mode. Do not "simplify" it back to a direct call.
 //
 //   * READ-ONLY, and narrowly so. DOM reads of the page the caller navigated to. Nothing else:
 //     no writes, no form submits, no buy/checkout controls, no credential access, no network
@@ -55,7 +56,9 @@
 //
 'use strict';
 (function () {
-  const VERSION = '0.2.1';
+  function __amzxLib() {
+  'use strict';
+  const VERSION = '0.3.0';
 
   /* ---------------------------------------------------------------- utils */
 
@@ -646,4 +649,31 @@
     _internals: { clean, clip, money, num, currency, compact, asinFrom, txtOf, unitPrice },
   };
   Object.defineProperty(window, '__amzx', { value: API, writable: true, configurable: true });
+  }
+
+  /* --------------------------------------------------------------- publish */
+  //
+  // Inject the library as a <script> tag rather than just calling it.
+  //
+  // Whether a userscript's `window` IS the page's `window` depends on how the extension
+  // injected it, which depends on browser settings the script cannot see. Under Manifest V3 a
+  // manager may run even a `@grant none` script in an isolated world — and then everything
+  // above executes perfectly, defines __amzx on a `window` nobody else can reach, and reports
+  // no error at all. That is the exact failure this library is built to prevent, so it should
+  // not ship with that failure in its own loader.
+  //
+  // The DOM is shared across worlds, so a <script> element always evaluates in the page's main
+  // world. This is correct in both cases: injected from the main world it is a no-op detour,
+  // injected from a sandbox it is the only way across. Verified on amazon.com 2026-08-20 —
+  // inline script execution is not CSP-blocked there.
+  try {
+    const el = document.createElement('script');
+    el.textContent = '(' + __amzxLib.toString() + ')();';
+    (document.head || document.documentElement).appendChild(el);
+    el.remove();
+  } catch (e) {
+    // Strict CSP, or no DOM at all (the node test harness). Define it here and let the
+    // caller find out from health() whether it can actually see the page.
+    try { __amzxLib(); } catch (_) { /* nothing left to try */ }
+  }
 })();
