@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Amazon Claude Bridge
 // @namespace    https://github.com/dataterminals/AmazonClaudeBridge
-// @version      0.3.0
+// @version      0.3.1
 // @description  Read-only extractor library for amazon.com. Exposes window.__amzx so an assistant driving the browser can pull a compact, de-sponsored JSON record of the current page instead of reading a 60 KB accessibility tree. Never clicks a buy control, submits a form, or reads credentials.
 // @author       dataterminals
 // @homepageURL  https://github.com/dataterminals/AmazonClaudeBridge
@@ -58,7 +58,7 @@
 (function () {
   function __amzxLib() {
   'use strict';
-  const VERSION = '0.3.0';
+  const VERSION = '0.3.1';
 
   /* ---------------------------------------------------------------- utils */
 
@@ -298,6 +298,12 @@
   const OPTIONAL = new Set([
     'wasPrice', 'unitPrice', 'coupon', 'badgeChoice', 'badgeBest', 'delivery', 'byline',
     'detailList', 'brandRow', 'thumb', 'link', 'badge', 'histRow', 'rVerified', 'rHelpful',
+    // shipsFrom is absent by design on Amazon-sold items: when soldBy is Amazon.com the page
+    // collapses the separate "Ships from" row, because it would just say Amazon.com twice.
+    // Third-party listings do render it (verified on an AnkerDirect listing, 2026-08-20).
+    // Treating it as required made health() report BROKEN on a perfectly healthy page, which
+    // is the cry-wolf failure that makes a health check worth ignoring.
+    'shipsFrom',
   ]);
 
   /* ------------------------------------------------------------- page type */
