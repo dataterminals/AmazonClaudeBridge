@@ -16,9 +16,17 @@ add extraction there.
 ```js
 // after navigating the tab to an amazon.com URL
 await __amzx.full()                 // search page or product page — dispatches on page type
-await __amzx.full({deep: true})     // product page + all sellers + critical reviews (2 extra GETs)
 await __amzx.full({limit: 40})      // search page, more rows (default 24)
 __amzx.health()                     // which selectors still resolve here
+```
+
+**Extra data costs a navigation, not an option flag.** There is no fetch path (see rule 7):
+
+```js
+// all sellers — the buy box shows one and it is often not the cheapest
+navigate(`https://www.amazon.com/dp/${asin}?aod=1`); await __amzx.full()   // -> .offers
+// reviews
+navigate(`https://www.amazon.com/product-reviews/${asin}/`); await __amzx.full()
 ```
 
 `full()` is async. Return it directly — the eval has REPL semantics and top-level `await` works.
@@ -54,6 +62,12 @@ broken selector than a genuinely sparse product.
    not verification.
 
 6. **Run `node tests/parse.test.js` after touching any parser.** Zero dependencies, plain node.
+
+7. **Do not re-add a fetch path.** It was tried and removed in v0.2.0. The all-offers AJAX
+   endpoints 404 in every URL shape; `?aod=1` over XHR omits the client-rendered panel; and
+   `filterByStar=critical` is ignored by Amazon over fetch *and* over real navigation. If you
+   think you have found a working endpoint, verify the returned star ratings actually match the
+   requested filter before believing it — the old code "worked" and returned 5-star reviews.
 
 ## Known-fragile spots
 

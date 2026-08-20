@@ -9,9 +9,11 @@ The one you want. Dispatches on page type and returns page metadata plus the mat
 
 ```js
 await __amzx.full()                  // whatever this page is
-await __amzx.full({deep: true})      // product pages: + all sellers, + critical reviews
 await __amzx.full({limit: 40})       // search pages: more rows (default 24)
 ```
+
+Extra data costs a **navigation**, not an option flag — the library makes no network requests.
+Navigate to `/dp/<ASIN>?aod=1` and call `full()` again to get `offers`.
 
 Always present: `type`, `url`, `capturedAt`, `_v`. Present when relevant: `asin`, `title`.
 On a CAPTCHA or error interstitial it returns `{blocked, error}` and nothing else — a human has to
@@ -77,14 +79,31 @@ anything else (`Best Seller`, `Amazon's Choice`) stays in `badge`.
 present. **`_missing`** lists any of `title / price / rating / availability / soldBy` that came
 back empty — always check it.
 
-With `{deep: true}` you also get:
+### All sellers
 
-- **`offers`** — up to 10 sellers with price, seller, ships-from and condition. The buy box shows
-  one; the cheapest is often not it.
-- **`criticalReviews`** — verified-purchase, newest-first, critical only. Where real defects and
-  listing hijacks show up.
+Navigate to `https://www.amazon.com/dp/<ASIN>?aod=1` and call `full()` again. The panel renders
+client-side, so fetching that URL returns a page without it — you have to actually go there.
 
-Each deep fetch is one same-origin GET. Failures land in `_warn` rather than killing the capture.
+```jsonc
+"offers": [
+  { "price": 9.99, "seller": "AnkerDirect",   "shipsFrom": "Amazon.com", "condition": "New" },
+  { "price": 9.89, "seller": "Amazon Resale", "shipsFrom": "Amazon.com", "condition": "Resale - Like New" },
+  { "price": 18.29,"seller": "Amazon.com",    "shipsFrom": "Amazon.com", "condition": "New" }
+]
+```
+
+Real capture — note the buy box was showing $9.99 while Amazon Resale had it at $9.89. That gap
+is the reason this call exists.
+
+Call `offers()` on a page without the panel and you get `{_needs: "navigate to …"}` rather than
+an empty result, so a missing panel can't be mistaken for a product with one seller.
+
+### Critical reviews are not available
+
+`filterByStar=critical` is ignored by Amazon — verified 2026-08-20 over both fetch and real
+navigation, which returned eight 4-and-5-star reviews for a URL asking for critical only. The
+`criticalReviews()` call was removed in v0.2.0 rather than left to mislead. `reviews()` sets
+`_warn` if it notices the filter was requested and every review came back 4–5 stars.
 
 ## `health()` → object
 
@@ -111,8 +130,7 @@ warning that the primary is rotting.
 | `product()` | Product record only |
 | `search(opts?)` | Search record only |
 | `reviews(doc?, opts?)` | Star distribution + review sample from a document |
-| `offers(asin?)` | Promise — all sellers |
-| `criticalReviews(asin?, limit?)` | Promise — verified critical reviews |
+| `offers()` | All sellers on the current page, or `{_needs}` if the panel isn't loaded |
 | `text(max?)` | Rough visible text. Escape hatch for page types with no extractor (cart, wishlists) |
 | `SEL` | The live selector registry — inspect it when debugging |
 

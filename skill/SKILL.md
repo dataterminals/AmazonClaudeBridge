@@ -21,7 +21,9 @@ three or four products.
    the `Purchased …` badge all depend on the user's logged-in session, and the userscript is
    installed in their real browser. Close any tab you opened when you're done.
 1. Navigate the tab to an Amazon URL (build it with the parameters below — don't click through UI).
-2. `await __amzx.full()` — or `{deep:true}` on a product page you're seriously considering.
+2. `await __amzx.full()`. For a product you're seriously considering, navigate again to
+   `/dp/<ASIN>?aod=1` and call it a second time — that adds `offers`, every seller for the item.
+   Worth the extra round-trip: the buy box shows one seller and often isn't the cheapest.
 3. Check `_missing` and `_warn`. If they're substantial, run `__amzx.health()` before trusting it.
 4. Report as a comparison table, not prose.
 
@@ -52,8 +54,14 @@ don't keep retrying node IDs.
 Other useful URLs:
 
 - `https://www.amazon.com/dp/<ASIN>` — canonical product page, no tracking cruft
-- `https://www.amazon.com/product-reviews/<ASIN>/?sortBy=recent&filterByStar=critical&reviewerType=avp_only_reviews`
-  — verified critical reviews, newest first (or just use `full({deep:true})`)
+- `https://www.amazon.com/dp/<ASIN>?aod=1` — all sellers. The panel renders client-side, so you
+  must **navigate** here; fetching it returns a page without the offers
+- `https://www.amazon.com/product-reviews/<ASIN>/` — the reviews list
+
+**`filterByStar=critical` does not work.** Verified 2026-08-20: navigating to the critical-filter
+URL returned eight 4-and-5-star reviews. Amazon ignores the parameter. `__amzx.reviews()` sets
+`_warn` when it detects this — respect it. Never tell the user the critical reviews look fine
+based on reviews you have not confirmed are critical; say the filter is unavailable instead.
 
 ## Reporting
 
@@ -72,14 +80,15 @@ it, and that usually ends the question.
 
 ## Vetting a listing
 
-Things worth flagging when you see them in a `{deep:true}` capture:
+Things worth flagging when you see them in a capture:
 
 - **Sold-by / ships-from mismatch** — a third-party seller shipping directly is a different risk
   and a different returns path than Amazon-fulfilled.
 - **Cheapest offer isn't the buy box.** `offers` frequently shows a lower price than the default.
   Say so, with the seller.
-- **Critical reviews describing a different product.** Classic listing hijack — the ASIN's review
-  pool was inherited from something else and the rating is meaningless.
+- **Reviews describing a different product.** Classic listing hijack — the ASIN's review pool was
+  inherited from something else and the rating is meaningless. You'll have to spot this in the
+  general review sample, since the critical filter is unavailable.
 - **Rating count wildly out of scale with the product's apparent age**, or a bimodal distribution
   (heavy 5s and 1s, little middle).
 - **Review pool shared across unrelated variations** — a "4.6" can belong mostly to a different

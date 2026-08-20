@@ -32,8 +32,8 @@ out, ads counted and dropped.
 |---|---|---|
 | Search results | `__amzx.full()` | Organic results only — ASIN, title, price, stars, review count, Prime, badge — plus how many ads were removed |
 | Product | `__amzx.full()` | Price (with unit price and list price), rating, availability, ships-from / sold-by, delivery, coupon, badges, breadcrumb, feature bullets, spec table, canonical URL |
-| Product, deep | `__amzx.full({deep:true})` | The above plus **all sellers** (the buy box hides them, and the default is often not the cheapest) and **verified-purchase critical reviews, newest first** |
-| Reviews | `__amzx.full()` | Star distribution plus a sample with dates, verified flags and helpful counts |
+| All sellers | navigate to `/dp/<ASIN>?aod=1`, then `__amzx.full()` | Every offer with price, seller, ships-from and condition. Worth doing: on the test product the buy box showed $9.99 while Amazon Resale had it at $9.89 |
+| Reviews | navigate to `/product-reviews/<ASIN>/`, then `__amzx.full()` | Star distribution plus a sample with dates, verified flags and helpful counts |
 | Anything | `__amzx.health()` | Which selectors still resolve on this page — see *Maintenance* |
 
 Every record is pruned of nulls and empty branches before it is returned, and long strings are
@@ -62,13 +62,25 @@ It is a copy, not a link — re-run that after pulling changes.
 
 ## Scope, deliberately narrow
 
-The script reads the DOM and, only when the caller passes `{deep:true}`, issues same-origin GETs
-for two pages the signed-in user could reach by clicking — the all-sellers panel and the reviews
-list. That is the entire footprint.
+The script reads the DOM of the page the caller navigated to. That is the entire footprint — as
+of v0.2.0 it makes **no network requests at all**.
 
 It does **not** write to the page, submit a form, touch a cart / buy / checkout control, read
 credentials, contact any third-party host, or crawl in the background. Anything that changes
 account state belongs in a different, clearly-scoped tool.
+
+### Two things Amazon no longer allows, and what the library does about it
+
+v0.1.0 fetched sub-pages for extra data. Both paths were dead, and testing them against the live
+site is the only reason that was caught:
+
+- **The all-offers AJAX endpoints 404**, and `/dp/<ASIN>?aod=1` fetched over XHR omits the panel
+  because it renders client-side. `offers()` now reads the live DOM and returns a `_needs` hint
+  naming the URL to navigate to, instead of quietly returning nothing.
+- **Amazon ignores `filterByStar=critical`** — over fetch *and* over real navigation. A navigation
+  to the critical-filter URL returned eight 4-and-5-star reviews. The old `criticalReviews()` is
+  removed outright, because an assistant trusting it would report "the critical reviews look fine"
+  having never seen a critical review. `reviews()` now detects the mismatch and returns a `_warn`.
 
 ## Captures contain personal data
 
