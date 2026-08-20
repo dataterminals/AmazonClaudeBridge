@@ -111,10 +111,38 @@ script — never rewrite the extraction logic. Candidates are tried in order, mo
 whose `window` is not the page's `window`, and `__amzx` becomes invisible to an external
 evaluator — the script looks installed and working while its only purpose silently fails.
 
+## Order history
+
+The extractor can tell you what a thing costs today. It cannot tell you what *you* paid for it in
+2023 — and that is usually the more useful number.
+
+Amazon's official **Request My Data** export closes that gap: a one-time request, delivered as
+CSV, needing no maintenance and no scraping. `bin/orders.js` ingests it.
+
+```bash
+node bin/orders.js ingest ~/Downloads/Your\ Orders.zip
+node bin/orders.js asin B07DC5PPFV
+```
+
+```
+B07DC5PPFV: bought 3× (qty 3), 2023-04-11 to 2025-08-14
+  Anker USB-C Cable, 2-Pack, 6ft
+  last price 16.49, total spent 44.47
+```
+
+Full walkthrough in [docs/ORDER-EXPORT.md](docs/ORDER-EXPORT.md). Output lands in `store/`, which
+is gitignored — it is a complete purchase history and this repo is public. Addresses, payment
+instruments, tracking numbers and gift messages are dropped during ingest and never hit disk.
+
+There is deliberately **no order-page extractor** in the userscript. Order pages are a React app
+with per-deploy class hashes; the official export is complete and stable, so scraping them would
+be strictly worse.
+
 ## Tests
 
 ```bash
-node tests/parse.test.js
+node tests/parse.test.js    # 64 extractor parser tests
+node tests/orders.test.js   # 47 order-ingest tests
 ```
 
 60 zero-dependency tests over the pure parsers. Each case is a defect found by running the

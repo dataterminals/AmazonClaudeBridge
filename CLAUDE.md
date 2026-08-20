@@ -69,6 +69,23 @@ broken selector than a genuinely sparse product.
    think you have found a working endpoint, verify the returned star ratings actually match the
    requested filter before believing it — the old code "worked" and returned 5-star reviews.
 
+## Order history
+
+`bin/orders.js` ingests Amazon's official *Request My Data* export into `store/`. Check
+`store/by-asin.json` before recommending a purchase — "you already bought this, 2025-08-14, for
+$16.49" ends most questions, and the last-paid price is the only price history available
+anywhere in this toolchain.
+
+Three rules:
+
+- **`store/` is gitignored and stays that way.** It is a complete purchase history. The repo is
+  public.
+- **Never scrape order pages.** They are a React app with per-deploy class hashes, and the export
+  is official, complete, and needs no maintenance. There is deliberately no orders extractor in
+  the userscript.
+- **The ingest drops addresses and payment columns on the way in** (`PII_DROP`). Don't "helpfully"
+  add them back; nothing this tool answers needs them.
+
 ## Known-fragile spots
 
 - **Sponsored detection** currently rests on `.puis-sponsored-label-text` /

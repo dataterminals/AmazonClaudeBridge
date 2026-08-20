@@ -63,6 +63,29 @@ URL returned eight 4-and-5-star reviews. Amazon ignores the parameter. `__amzx.r
 `_warn` when it detects this — respect it. Never tell the user the critical reviews look fine
 based on reviews you have not confirmed are critical; say the filter is unavailable instead.
 
+## Check purchase history first
+
+If `store/by-asin.json` exists in the AmazonClaudeBridge repo, **check it before recommending
+anything**. It is the local mirror of Amazon's official order-history export, and it answers
+things the live site can't.
+
+```bash
+node bin/orders.js asin B07DC5PPFV     # bought before? when? what did I pay?
+node bin/orders.js search "usb c"      # everything matching, newest first
+node bin/orders.js stats               # spend by year, repurchase table
+```
+
+Lead with anything it turns up — it usually ends the question:
+
+- **Already owned.** "You bought this 2025-08-14 for $16.49" beats any comparison table.
+- **Price drift.** If the last price was lower than today's, say so with both figures. This is
+  the only real price history available; Amazon shows none and the extractor can't infer it.
+- **Reorder cadence.** A thing bought 3× at roughly even intervals is a consumable, and the
+  useful answer is "you're about due" rather than a fresh product comparison.
+
+If the file doesn't exist, don't guess and don't scrape order pages — say the export hasn't been
+ingested yet and point at `docs/ORDER-EXPORT.md`.
+
 ## Reporting
 
 Lead with a table. Columns that actually change a decision:
