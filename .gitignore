@@ -12,3 +12,7 @@ desktop.ini
 # The plugin variant of the skill. Deliberately NOT committed: it carries real machine
 # names and personal framing, and this repo is public. See CLAUDE.md.
 /plugin/
+
+# The built plugin bundle. Same personal payload as /plugin/, different door: the archive
+# sits in the repo root during unpacking, which is exactly when it would get staged.
+*.plugin
