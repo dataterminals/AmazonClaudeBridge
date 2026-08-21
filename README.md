@@ -33,7 +33,8 @@ out, ads counted and dropped.
 | Search results | `__amzx.full()` | Organic results only — ASIN, title, price, stars, review count, Prime, badge — plus how many ads were removed |
 | Product | `__amzx.full()` | Price (with unit price and list price), rating, availability, ships-from / sold-by, delivery, coupon, badges, breadcrumb, feature bullets, spec table, canonical URL |
 | All sellers | navigate to `/dp/<ASIN>?aod=1`, then `__amzx.full()` | Every offer with price, seller, ships-from and condition. Worth doing: on the test product the buy box showed $9.99 while Amazon Resale had it at $9.89 |
-| Reviews | navigate to `/product-reviews/<ASIN>/`, then `__amzx.full()` | Star distribution plus a sample with dates, verified flags and helpful counts |
+| Reviews | navigate to `/product-reviews/<ASIN>/`, then `__amzx.full()` | Star distribution, plus a capped sample with `coverage` and `ceiling` flags — Amazon now returns 8 reviews regardless of any filter |
+| Variants | `__amzx.full()` on a product page | Every SKU in the listing, which combinations are actually stocked, and `_dilution` — how many products share the one star rating |
 | Anything | `__amzx.health()` | Which selectors still resolve on this page — see *Maintenance* |
 
 Every record is pruned of nulls and empty branches before it is returned, and long strings are
@@ -46,7 +47,8 @@ capped. Compactness is the product.
    Tampermonkey take the install.
 3. Load any Amazon page and check the console: `__amzx.version` should return a string.
 
-If `__amzx` is `undefined` on an Amazon page, see the `@grant none` note in *Maintenance*.
+If `__amzx` is `undefined` on an Amazon page, the most likely cause is that you are looking at a
+different browser than the one it is installed in — check that first, then see *Maintenance*.
 
 ### The companion skill
 
@@ -86,10 +88,13 @@ site is the only reason that was caught:
 - **The all-offers AJAX endpoints 404**, and `/dp/<ASIN>?aod=1` fetched over XHR omits the panel
   because it renders client-side. `offers()` now reads the live DOM and returns a `_needs` hint
   naming the URL to navigate to, instead of quietly returning nothing.
-- **Amazon ignores `filterByStar=critical`** — over fetch *and* over real navigation. A navigation
-  to the critical-filter URL returned eight 4-and-5-star reviews. The old `criticalReviews()` is
-  removed outright, because an assistant trusting it would report "the critical reviews look fine"
-  having never seen a critical review. `reviews()` now detects the mismatch and returns a `_warn`.
+- **Every review parameter is ignored, and the sample is capped at 8.** Not just `critical`:
+  verified 2026-08-21, `filterByStar=one_star` returns eight reviews rated 5,5,5,5,4,5,5,5, and the
+  same eight come back for every other filter, both sorts and `pageNumber=2`. No pagination control
+  exists. It is site-wide — one listing served 224 reviews under its 1★ filter on 18 Aug and eight
+  on 20 Aug. `criticalReviews()` was removed outright; `reviews()` now reports `coverage` and
+  `ceiling` so the gap is visible, and the star distribution is the only figure still worth
+  quoting.
 
 ## Captures contain personal data
 
@@ -116,9 +121,11 @@ Two things are built to make that loud instead:
 When a field breaks, **add a candidate selector to the `SEL` registry** near the top of the
 script — never rewrite the extraction logic. Candidates are tried in order, most-specific first.
 
-`@grant none` is load-bearing. With any `GM_*` grant, Tampermonkey runs the script in a sandbox
-whose `window` is not the page's `window`, and `__amzx` becomes invisible to an external
-evaluator — the script looks installed and working while its only purpose silently fails.
+**The loader publishes via a `<script>` tag, and that is load-bearing.** Whether a userscript's
+`window` is the page's `window` depends on how the extension injected it — something the script
+cannot observe. v0.1.0 assumed `@grant none` meant main-world, installed cleanly, and left
+`__amzx` undefined with no error anywhere. A `<script>` element always evaluates in the main world
+because the DOM is shared. Do not simplify it back to a direct call.
 
 ## Order history
 
@@ -152,6 +159,8 @@ be strictly worse.
 ```bash
 node tests/parse.test.js    # 64 extractor parser tests
 node tests/orders.test.js   # 47 order-ingest tests
+node tests/vendor.test.js   # 9 checks that the skill's injected copy matches src/
+node bin/vendor.js --check  # same sync check, for CI
 ```
 
 60 zero-dependency tests over the pure parsers. Each case is a defect found by running the

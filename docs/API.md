@@ -98,12 +98,51 @@ is the reason this call exists.
 Call `offers()` on a page without the panel and you get `{_needs: "navigate to …"}` rather than
 an empty result, so a missing panel can't be mistaken for a product with one seller.
 
-### Critical reviews are not available
+### Variants — `variants(opts?)`
 
-`filterByStar=critical` is ignored by Amazon — verified 2026-08-20 over both fetch and real
-navigation, which returned eight 4-and-5-star reviews for a URL asking for critical only. The
-`criticalReviews()` call was removed in v0.2.0 rather than left to mislead. `reviews()` sets
-`_warn` if it notices the filter was requested and every review came back 4–5 stars.
+Included in `full()` on every product page. Decodes Amazon's twister payload
+(`dimensions` / `variationValues` / `dimensionToAsinMap`).
+
+```jsonc
+"variants": {
+  "axes": { "color_name": ["01 Claddagh-Gold", "…"], "ring_size": ["4","5","…","12"] },
+  "skuCount": 45,
+  "selected": { "color_name": "01 Claddagh-Silver", "ring_size": "8", "asin": "B0BV9YJ7LS" },
+  "possibleCombos": 56,        // only when it exceeds skuCount
+  "unavailable": [             // advertised in the dropdown, absent from the map
+    { "ring_size": "8", "gem_type": "natural green peridot" }
+  ],
+  "_dilution": "This listing's star rating is pooled across 45 SKUs (5 color_name x 9 ring_size). It is not a rating for this variant alone."
+}
+```
+
+`_dilution` is the payload. **A rating earned by one product and a rating pooled across ninety are
+different numbers wearing the same badge**, and nothing on the rendered page distinguishes them.
+
+`unavailable` is the other half: verified on `B015WD11L6`, "natural green peridot" is stocked in
+ring sizes 7 and 10 only — the dropdown offers it in size 8 and no such SKU exists.
+
+Pass `{full: true}` for the complete decoded combination list (large; omitted by default). The
+decode is **self-validating**: map keys are underscore-joined value indices matching `dimensions`
+positionally, and `selected` is found by locating the current page's own ASIN in the map. If
+`selected` is null on a variation page, the convention has moved and `_warn` says so.
+
+### Reviews are capped at 8, and every parameter is ignored
+
+Verified 2026-08-21 on `B0BV9YJ7LS`: `filterByStar=one_star` returns eight reviews rated
+5,5,5,5,4,5,5,5. The same eight come back for `two_star`, `three_star`, `critical`, both `sortBy`
+values and `pageNumber=2`. There is no pagination control. This is site-wide — `B0BGKYF5VZ` served
+224 reviews under its 1★ filter on 18 Aug and eight on 20 Aug.
+
+`criticalReviews()` was removed in v0.2.0 rather than left to mislead. `reviews()` now returns:
+
+```jsonc
+"sampling": { "n": 8, "ratingsTotal": 574, "coverage": "1.4%", "ceiling": true, "complete": false }
+```
+
+and sets `_warn` naming any parameter proven ignored. **The star distribution is the only
+trustworthy figure the endpoint still returns** — on that listing it reports 3% at 1★, roughly 17
+reviews that the "one star" filter will not show you.
 
 ## `health()` → object
 

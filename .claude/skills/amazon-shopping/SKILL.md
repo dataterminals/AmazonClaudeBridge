@@ -1,6 +1,6 @@
 ---
 name: amazon-shopping
-description: Research products on amazon.com — search, compare candidates, check price and sellers, and vet a listing before buying. Extracts compact structured data via the __amzx library instead of reading whole pages, and works in any browser (it bootstraps itself where the userscript is not installed). Use whenever the user pastes an Amazon or amzn.to link, asks about a product, asks to compare or find the best option in a category, asks whether something is a good price or a good buy, asks about a seller or reviews, or asks what they previously bought or paid on Amazon. Do not use for placing orders or operating a cart.
+description: Research products on amazon.com — search, compare candidates, check price and sellers, read the variant map, and vet a listing before buying. Extracts compact structured data via the __amzx library instead of reading whole pages. Use whenever the user pastes an Amazon or amzn.to link, asks about a product, asks to compare or find the best option in a category, asks whether something is a good price or a good buy, asks about a seller, a rating, or reviews, or asks what they previously bought or paid on Amazon. Do not use for placing orders or operating a cart.
 ---
 
 # Amazon shopping research
@@ -25,10 +25,24 @@ quietly doing something worse:
 
 So:
 
-- **`__amzx` is undefined** → you are not on one of her browsers. **Bootstrap it** rather than
-  falling back to reading raw pages (see below). If the bootstrap fails too, say which capability
-  is missing; you may still read the page with ordinary browser tools, but **say that you are
-  doing it**, and expect it to cost 10–30× the tokens.
+**Probe liveness FIRST — before any `__amzx` check.** The first thing that can fail is
+`javascript_tool` itself, and when it does, every probe looks identical to "the library is
+missing". Make this the first JS call of the session:
+
+```js
+1  // liveness probe
+```
+
+| Probe result | Meaning | Do |
+|---|---|---|
+| returns `1` | JS execution works | continue to the `__amzx` check |
+| **`Permission for this action was denied by the … classifier`** | a safety classifier refused the payload | **do not retry, do not rephrase.** Name the refused call and stop |
+| **`javascript_tool did not respond in time`** | usually an unanswered permission prompt in the Chrome side panel | ask her to check the side panel. **One retry, then stop** |
+
+Only once the probe returns `1`:
+
+- **`__amzx` is undefined** → you are not on a browser with the userscript. Go to the ladder
+  below. Do not conclude the tooling is broken; SylDesk and SylG5 both have it.
 - **No `mcp__claude-in-chrome__*` tools at all** → you cannot reach her browsers from this
   environment. Report that plainly instead of substituting a different browser and implying the
   results are equivalent.
@@ -40,27 +54,34 @@ through the extractor, you do not know which entries were sponsored, and you mus
 were filtered. Ad density on a plain search runs about a quarter of the page, so silently passing
 those through as organic results is a real, material error.
 
-### Bootstrap the extractor in any browser
+### Getting `__amzx`: a three-tier ladder, in order
 
-The userscript is only an installation convenience. The library is self-contained and public, so
-**any** browser sitting on an amazon.com page can load it on demand — no extension, no install.
-Run this once per page load, then use `__amzx` exactly as normal:
+**Tier 1 — the installed userscript. This is the happy path.** If `typeof __amzx !== 'undefined'`,
+use it. Zero cost, zero injection. Already true on **SylDesk** and **SylG5**, which is where most
+work happens. Try this first and expect it to succeed.
 
-```js
-if (typeof __amzx === 'undefined') {
-  const src = await fetch('https://raw.githubusercontent.com/dataterminals/AmazonClaudeBridge/main/src/amazon-claude-bridge.user.js').then(r => r.text());
-  (0, eval)(src);
-}
-__amzx.version
-```
+**Tier 2 — inject the vendored copy.** If `__amzx` is undefined, read
+`assets/amzx.min.js` from this skill's own directory and evaluate that string in the page. It is
+local, version-locked to this skill, and reviewed at install time.
 
-Verified working on amazon.com — inline evaluation is not CSP-blocked there. Two caveats:
+Its real cost: **~25 KB spent in context on every page you inject it into.** That is roughly what
+one raw search-results read costs, so it pays for itself the moment you make two `__amzx` calls on
+the same page — and it is pure waste if you inject it to read one field. Prefer Tier 1
+deliberately rather than falling into Tier 2 by habit, and if you only need a title, just read the
+title.
 
-- **The raw CDN caches for a few minutes.** A just-pushed fix may not be served yet; if
-  `__amzx.version` looks stale, refetch using a commit SHA in place of `main`.
-- **A signed-out browser gives different data.** Prices, Prime eligibility, delivery estimates
-  and the `Purchased …` badge all depend on the session. If `#nav-link-accountList` reads "Sign
-  in", say the figures are the signed-out view — do not sign in, and do not present them as hers.
+**Tier 3 — stop.** No `__amzx` and no vendored asset: name the missing capability and stop. You
+may read the page with ordinary browser tools as an explicitly labelled degraded mode, but say so.
+
+> **Never fetch code over the network and eval it.** A previous version of this skill told you to
+> `fetch()` the library from GitHub and `(0, eval)` it. That is the textbook shape of what safety
+> tooling exists to stop, and it was **blocked by a classifier** in a real session — correctly, and
+> not as a flake. `main` is mutable, so what would execute is not knowable at review time. Do not
+> reintroduce it, and do not route around a denial by rephrasing the payload.
+
+**A signed-out browser gives different data.** Prices, Prime eligibility, delivery estimates and
+the `Purchased …` badge all depend on the session. If `#nav-link-accountList` reads "Sign in", say
+the figures are the signed-out view — do not sign in, and do not present them as hers.
 
 ## The loop
 
@@ -108,10 +129,22 @@ Other useful URLs:
   must **navigate** here; fetching it returns a page without the offers
 - `https://www.amazon.com/product-reviews/<ASIN>/` — the reviews list
 
-**`filterByStar=critical` does not work.** Verified 2026-08-20: navigating to the critical-filter
-URL returned eight 4-and-5-star reviews. Amazon ignores the parameter. `__amzx.reviews()` sets
-`_warn` when it detects this — respect it. Never tell the user the critical reviews look fine
-based on reviews you have not confirmed are critical; say the filter is unavailable instead.
+## Reviews are capped at 8 and the parameters are inert
+
+Not just `critical` — **every** review parameter is ignored. Verified 2026-08-21 on `B0BV9YJ7LS`:
+`filterByStar=one_star` returned eight reviews rated 5,5,5,5,4,5,5,5. Identical eight for
+`two_star`, `three_star`, `critical`, both `sortBy` values and `pageNumber=2`. No pagination
+control exists. It is site-wide, not one bad listing — `B0BGKYF5VZ` served 224 reviews under its
+1★ filter on 18 Aug and eight on 20 Aug.
+
+**The star distribution is the only trustworthy thing the reviews endpoint still returns.** The
+percentages are real. The sample is not representative, cannot be made representative, and no
+amount of URL fiddling will reach review number nine — don't try.
+
+`reviews()` gives you `sampling: {n, ratingsTotal, coverage, ceiling}`. On that ring: 8 readable
+against 574 rated is **1.4% coverage**, while the distribution says 3% are 1★ — roughly 17 angry
+reviews that the "one star" filter will not show you. Quote the distribution and the coverage
+figure. Never characterise a product's problems from the sample.
 
 ## Check purchase history first
 
@@ -145,8 +178,10 @@ Lead with a table. Columns that actually change a decision:
 Then a short recommendation with the reason, and the rule-outs with *why* — the rule-outs are the
 part that saves the user repeating this later.
 
-Always state `sponsoredRemoved` when it's non-trivial. "16 organic results, 6 ads filtered" tells
-the user what they're actually looking at.
+**State `sponsoredRemoved` on every search report, without exception.** Not "when non-trivial" —
+always. About a quarter of a plain search page is advertising, and a report that omits the figure
+is indistinguishable from one where filtering never happened. "16 organic results, 6 ads filtered"
+takes four words and tells the user what they are actually looking at.
 
 If `ownedSince` is set on any result, lead with that — Amazon is reporting the user already bought
 it, and that usually ends the question.
@@ -159,9 +194,18 @@ Things worth flagging when you see them in a capture:
   and a different returns path than Amazon-fulfilled.
 - **Cheapest offer isn't the buy box.** `offers` frequently shows a lower price than the default.
   Say so, with the seller.
-- **Reviews describing a different product.** Classic listing hijack — the ASIN's review pool was
-  inherited from something else and the rating is meaningless. You'll have to spot this in the
-  general review sample, since the critical filter is unavailable.
+- **A rating pooled across many SKUs.** With review reading capped, `variants` is now the primary
+  audit tool — check it on every product page. `full()` includes it automatically and sets
+  `_dilution` whenever a listing has more than one SKU. A 574-rating average spread over 45 rings
+  is not a rating for the ring being bought, and nothing on the page says so. Real catches: a
+  Claddagh listing whose colour axis held four Triquetra knots — a different ring entirely; a
+  24-rating birthstone listing where every rating belonged to one colourway.
+- **A variant that is advertised but not stocked.** `variants().unavailable` lists combinations the
+  dropdown offers and the map doesn't have. Verified on `B015WD11L6`: "natural green peridot"
+  exists in sizes 7 and 10 only — not in size 8, and the rendered dropdown never says so.
+- **Reviews describing a different product.** Classic listing hijack. You'll have to spot this in
+  the 8-review sample, since every filter is inert — and 8 of several hundred may well not contain
+  it. Absence of evidence here is close to worthless.
 - **Rating count wildly out of scale with the product's apparent age**, or a bimodal distribution
   (heavy 5s and 1s, little middle).
 - **Review pool shared across unrelated variations** — a "4.6" can belong mostly to a different
