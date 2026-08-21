@@ -92,6 +92,17 @@ node bin/skill-drift.js --accept   # re-baseline once you have ported it
 ```
 
 Baseline lives in `skill-sync.json` and stores **hashes only** — never the plugin's content.
+
+The plugin tree is versioned in a **private** sibling repo,
+`dataterminals/AmazonClaudeBridge-plugin`, cloned into `plugin/` here. That repo pins
+`eol=lf`: with a global `autocrlf=true`, a clone on a second machine would otherwise rewrite
+`amzx.min.js` to CRLF, change its hash, and break both the byte-identical property and the
+baseline above. To set up a second machine:
+
+```bash
+git clone git@github.com:dataterminals/AmazonClaudeBridge-plugin.git plugin
+node bin/skill-drift.js --check
+```
 Porting is deliberately manual, because unlike `bin/vendor.js` there is no mechanical transform
 between the two: a human decides which changes are generic and which are personal.
 
