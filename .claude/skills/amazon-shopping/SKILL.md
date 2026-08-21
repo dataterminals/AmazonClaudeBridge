@@ -1,6 +1,6 @@
 ---
 name: amazon-shopping
-description: Research products on amazon.com through the user's logged-in browser using the __amzx extractor library — search, compare candidates, and vet a listing before buying. Use when the user pastes an Amazon link, asks to compare products, asks whether something is a good buy, or asks to find the best option in a category. Do not use for placing orders.
+description: Research products on amazon.com — search, compare candidates, check price and sellers, and vet a listing before buying. Extracts compact structured data via the __amzx library instead of reading whole pages, and works in any browser (it bootstraps itself where the userscript is not installed). Use whenever the user pastes an Amazon or amzn.to link, asks about a product, asks to compare or find the best option in a category, asks whether something is a good price or a good buy, asks about a seller or reviews, or asks what they previously bought or paid on Amazon. Do not use for placing orders or operating a cart.
 ---
 
 # Amazon shopping research
@@ -25,9 +25,10 @@ quietly doing something worse:
 
 So:
 
-- **`__amzx` is undefined** → you are not on one of her browsers. Say which capability is missing.
-  You may still read the page with ordinary browser tools, but **say that you are doing it**, and
-  expect it to cost 10–30× the tokens.
+- **`__amzx` is undefined** → you are not on one of her browsers. **Bootstrap it** rather than
+  falling back to reading raw pages (see below). If the bootstrap fails too, say which capability
+  is missing; you may still read the page with ordinary browser tools, but **say that you are
+  doing it**, and expect it to cost 10–30× the tokens.
 - **No `mcp__claude-in-chrome__*` tools at all** → you cannot reach her browsers from this
   environment. Report that plainly instead of substituting a different browser and implying the
   results are equivalent.
@@ -38,6 +39,28 @@ So:
 through the extractor, you do not know which entries were sponsored, and you must not claim ads
 were filtered. Ad density on a plain search runs about a quarter of the page, so silently passing
 those through as organic results is a real, material error.
+
+### Bootstrap the extractor in any browser
+
+The userscript is only an installation convenience. The library is self-contained and public, so
+**any** browser sitting on an amazon.com page can load it on demand — no extension, no install.
+Run this once per page load, then use `__amzx` exactly as normal:
+
+```js
+if (typeof __amzx === 'undefined') {
+  const src = await fetch('https://raw.githubusercontent.com/dataterminals/AmazonClaudeBridge/main/src/amazon-claude-bridge.user.js').then(r => r.text());
+  (0, eval)(src);
+}
+__amzx.version
+```
+
+Verified working on amazon.com — inline evaluation is not CSP-blocked there. Two caveats:
+
+- **The raw CDN caches for a few minutes.** A just-pushed fix may not be served yet; if
+  `__amzx.version` looks stale, refetch using a commit SHA in place of `main`.
+- **A signed-out browser gives different data.** Prices, Prime eligibility, delivery estimates
+  and the `Purchased …` badge all depend on the session. If `#nav-link-accountList` reads "Sign
+  in", say the figures are the signed-out view — do not sign in, and do not present them as hers.
 
 ## The loop
 
