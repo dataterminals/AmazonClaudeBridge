@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Amazon Claude Bridge
 // @namespace    https://github.com/dataterminals/AmazonClaudeBridge
-// @version      0.3.1
+// @version      0.4.0
 // @description  Read-only extractor library for amazon.com. Exposes window.__amzx so an assistant driving the browser can pull a compact, de-sponsored JSON record of the current page instead of reading a 60 KB accessibility tree. Never clicks a buy control, submits a form, or reads credentials.
 // @author       dataterminals
 // @homepageURL  https://github.com/dataterminals/AmazonClaudeBridge
@@ -58,7 +58,7 @@
 (function () {
   function __amzxLib() {
   'use strict';
-  const VERSION = '0.3.1';
+  const VERSION = '0.4.0';
 
   /* ---------------------------------------------------------------- utils */
 
@@ -273,7 +273,12 @@
       rBody:      ['[data-hook="review-body"] span', '[data-hook="review-body"]'],
       rVerified:  ['[data-hook="avp-badge"]'],
       rHelpful:   ['[data-hook="helpful-vote-statement"]'],
-      histRow:    ['#histogramTable tr', '[data-hook="histogram-row"]'],
+      // The histogram stopped being a <table>; '#histogramTable tr' matched nothing for a while
+      // and the distribution silently came back empty. Percentages now live in leaf spans, and
+      // the page renders the whole set twice, so take the first five. Verified 2026-08-21:
+      // 79/10/6/2/3 weights to a 4.60 average, which confirms they run 5-star first.
+      histPct:    ['#histogramTable .histogram-column-space'],
+      ratingsTotal: ['[data-hook="total-review-count"]', '#acrCustomerReviewText'],
     },
     offers: {
       // `div[id^="aod-offer"]` is WRONG and was the original bug: every child div inside an
@@ -499,16 +504,14 @@
     opts = opts || {};
     const S = SEL.reviews;
     const limit = opts.limit == null ? 8 : opts.limit;
-    const cards = $$(S.card.join(','), doc).slice(0, limit);
+    const allCards = $$(S.card.join(','), doc);
+    const cards = allCards.slice(0, limit);
     const dist = {};
-    for (const tr of $$(S.histRow.join(','), doc)) {
-      const first = tr.querySelector('td:first-child, .a-text-left');
-      const last = tr.querySelector('td:last-child, .a-text-right');
-      const label = clean(first ? first.textContent : null);
-      const pct = clean(last ? last.textContent : null);
-      const m = label ? label.match(/^([1-5])\s*star/i) : null;
-      if (m && pct) dist[m[1] + 'star'] = pct;
-    }
+    const pcts = $$(S.histPct.join(','), doc)
+      .map((e) => txtOf(e))
+      .filter((x) => /^\d{1,3}%$/.test(x || ''))
+      .slice(0, 5);
+    pcts.forEach((p, i) => { dist[(5 - i) + 'star'] = p; });
     const sample = cards.map((c) => {
         const sm = (pickText(S.rStars, c) || '').match(/([\d.]+)/);
         const dt = pickText(S.rDate, c);
@@ -522,16 +525,51 @@
         });
     });
 
-    // Amazon ignores filterByStar=critical. Verified 2026-08-20: navigating (not fetching —
-    // navigating) to the critical-filter URL still returned eight 4-and-5-star reviews. An
-    // assistant that trusts the URL will report "the critical reviews look fine" having never
-    // seen a critical review, which is worse than having no feature. Catch the lie here.
-    const askedCritical = /filterByStar=critical/.test(location.search);
-    const anyCritical = sample.some((r) => r.stars && r.stars <= 3);
-    const out = compact({ distribution: dist, sample: sample }) || {};
-    if (askedCritical && sample.length && !anyCritical) {
-      out._warn = 'Requested filterByStar=critical but every returned review is 4-5 stars: '
-        + 'Amazon ignored the filter. These are NOT critical reviews — do not report them as such.';
+    // THE REVIEW ENDPOINT IS CAPPED AND ITS PARAMETERS ARE INERT.
+    //
+    // Verified 2026-08-21 on B0BV9YJ7LS: `filterByStar=one_star` returned eight reviews rated
+    // 5,5,5,5,4,5,5,5 — not one 1-star among them. Same eight for two_star, three_star,
+    // critical, sortBy=helpful, sortBy=recent and pageNumber=2. No pagination control, no
+    // "see more" link. This is not specific to one listing: B0BGKYF5VZ served 224 reviews
+    // under its 1-star filter on 18 Aug and eight on 20 Aug. Something changed site-wide.
+    //
+    // So the sample is 8 of however many exist and cannot be steered. What IS still real is
+    // the histogram — report the gap in the return value rather than in a footnote, because a
+    // reader handed eight glowing reviews will otherwise treat them as the verdict.
+    const shown = allCards.length;
+    const total = num(pickText(S.ratingsTotal, doc));
+    const paginated = !!$('.a-pagination, [data-hook="pagination-bar"]', doc);
+    const capped = shown > 0 && !paginated && total != null && total > shown;
+
+    const qs = new URLSearchParams(location.search);
+    const ignored = [];
+    const wanted = { one_star: [1, 1], two_star: [2, 2], three_star: [3, 3], four_star: [4, 4],
+                     five_star: [5, 5], critical: [1, 3], positive: [4, 5] }[qs.get('filterByStar')];
+    const rated = sample.map((r) => r.stars).filter((s) => s != null);
+    if (wanted && rated.length && !rated.some((s) => s >= wanted[0] && s <= wanted[1])) {
+      ignored.push('filterByStar=' + qs.get('filterByStar'));
+    }
+    if (+qs.get('pageNumber') > 1 && !paginated) ignored.push('pageNumber=' + qs.get('pageNumber'));
+    if (ignored.length && qs.get('sortBy')) ignored.push('sortBy=' + qs.get('sortBy') + ' (assumed)');
+
+    const out = compact({
+      distribution: dist,
+      sampling: compact({
+        n: shown,
+        ratingsTotal: total,
+        coverage: (total && shown) ? (Math.round((shown / total) * 1000) / 10) + '%' : null,
+        ceiling: capped || undefined,
+        complete: capped ? false : undefined,
+      }),
+      sample: sample,
+    }) || {};
+
+    if (ignored.length) {
+      out._warn = 'Amazon IGNORED these parameters: ' + ignored.join(', ')
+        + '. The returned reviews do not match what was asked for — do not describe them as filtered or sorted.';
+    } else if (capped) {
+      out._warn = 'Only ' + shown + ' of ' + total + ' reviews are reachable and there is no way to page further. '
+        + 'This sample is not representative. The star distribution is the only trustworthy figure here.';
     }
     return out;
   }
@@ -567,6 +605,100 @@
     })));
   }
 
+  /* -------------------------------------------------------------- variants */
+  //
+  // WHY THIS EXISTS. With the review sample capped at 8 and unsteerable, reading reviews is
+  // finished as an audit technique. What replaces it is the variant map: Amazon pools ONE star
+  // rating across every SKU in a listing, so a 574-rating average can be spread over 45 rings
+  // — or belong overwhelmingly to a colourway that is not the one being bought. A rating earned
+  // by one product and a rating pooled across ninety are different numbers wearing the same
+  // badge, and nothing on the rendered page tells you which you are looking at.
+  //
+  // It is all sitting in the twister payload. Verified 2026-08-21 on B0BV9YJ7LS:
+  // dimensions ["color_name","ring_size"], 5 colours x 9 sizes, 45 entries in
+  // dimensionToAsinMap, all draining into one average.
+  //
+  // Map keys are underscore-joined value INDICES, positionally matching `dimensions` —
+  // "0_1" is dimensions[0]'s value 0 and dimensions[1]'s value 1. The decode is validated for
+  // free: the current page's own ASIN must appear in the map, and `selected` is how it is
+  // found. If `selected` comes back null on a variation page, the index convention has moved
+  // and everything below it is suspect.
+
+  function twisterData() {
+    for (const s of $$('script')) {
+      const t = s.textContent || '';
+      if (!t.includes('dimensionToAsinMap')) continue;
+      const one = (re) => { const m = t.match(re); if (!m) return null; try { return JSON.parse(m[1]); } catch { return null; } };
+      const dims = one(/"dimensions"\s*:\s*(\[[\s\S]*?\])/);
+      const values = one(/"variationValues"\s*:\s*(\{[\s\S]*?\})\s*,\s*"/);
+      const map = one(/"dimensionToAsinMap"\s*:\s*(\{[\s\S]*?\})\s*,\s*"/);
+      if (dims && values && map) return { dims, values, map };
+    }
+    return null;
+  }
+
+  function variants(opts) {
+    opts = opts || {};
+    const d = twisterData();
+    if (!d) return null;                       // not a variation listing
+    const dims = d.dims, values = d.values, map = d.map;
+    const here = asinFrom(location.href);
+
+    const decode = (key) => {
+      const idx = key.split('_').map(Number);
+      const combo = {};
+      dims.forEach((dim, i) => {
+        const list = values[dim] || [];
+        combo[dim] = list[idx[i]] == null ? null : list[idx[i]];
+      });
+      return combo;
+    };
+
+    const entries = Object.entries(map);
+    const available = entries.map((e) => Object.assign(decode(e[0]), { asin: e[1] }));
+    const selected = available.find((c) => c.asin === here) || null;
+
+    const axisSizes = dims.map((dim) => (values[dim] || []).length || 1);
+    const totalCombos = axisSizes.reduce((a, b) => a * b, 1);
+
+    // Combinations the listing advertises but does not stock — the case where a dropdown
+    // offers "natural peridot" and no peridot exists in the size being bought.
+    const unavailable = [];
+    if (entries.length < totalCombos && totalCombos <= 4000) {
+      const walk = (pos, acc) => {
+        if (unavailable.length >= 20) return;
+        if (pos === dims.length) { if (!map[acc.join('_')]) unavailable.push(decode(acc.join('_'))); return; }
+        for (let i = 0; i < axisSizes[pos]; i++) walk(pos + 1, acc.concat(i));
+      };
+      walk(0, []);
+    }
+
+    const axes = {};
+    for (const dim of dims) axes[dim] = values[dim] || [];
+
+    const out = compact({
+      axes,
+      skuCount: entries.length,
+      possibleCombos: totalCombos !== entries.length ? totalCombos : undefined,
+      selected,
+      unavailable: unavailable.length ? unavailable : undefined,
+      unavailableTruncated: unavailable.length >= 20 ? true : undefined,
+      // The raw list is big and rarely what you want; ask for it explicitly.
+      available: opts.full ? available : undefined,
+    }) || {};
+
+    if (entries.length > 1) {
+      out._dilution = 'This listing\'s star rating is pooled across ' + entries.length + ' SKUs ('
+        + dims.map((dim, i) => axisSizes[i] + ' ' + dim).join(' x ')
+        + '). It is not a rating for this variant alone.';
+    }
+    if (!selected && here) {
+      out._warn = 'This page\'s ASIN (' + here + ') is not in dimensionToAsinMap. The key/index '
+        + 'convention may have changed — treat the decoded combinations below as unverified.';
+    }
+    return out;
+  }
+
   /* ------------------------------------------------------------------ full */
 
   async function full(opts) {
@@ -586,6 +718,10 @@
         const o = offers();
         if (o && !o._needs) out.offers = o;
         else if (o && o._needs) out.offersHint = o._needs;
+        // Always on product pages: a pooled rating is the single most misleading number on the
+        // page, and it costs nothing to say so when it applies.
+        const v = variants();
+        if (v) out.variants = v;
       } else if (meta.type === 'search') {
         out.search = searchResults(opts);
       } else if (meta.type === 'reviews') {
@@ -646,6 +782,7 @@
     search: searchResults,
     reviews: reviewsOn,
     offers: offers,
+    variants: variants,
     full: full,
     health: health,
     text: text,
