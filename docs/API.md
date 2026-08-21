@@ -170,6 +170,7 @@ warning that the primary is rotting.
 | `search(opts?)` | Search record only |
 | `reviews(doc?, opts?)` | Star distribution + review sample from a document |
 | `offers()` | All sellers on the current page, or `{_needs}` if the panel isn't loaded |
+| `variants(opts?)` | Every SKU in the listing, what's actually stocked, and `_dilution`. `{full:true}` for the whole decoded list |
 | `text(max?)` | Rough visible text. Escape hatch for page types with no extractor (cart, wishlists) |
 | `SEL` | The live selector registry — inspect it when debugging |
 

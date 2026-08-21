@@ -8,3 +8,7 @@
 .idea/
 Thumbs.db
 desktop.ini
+
+# The plugin variant of the skill. Deliberately NOT committed: it carries real machine
+# names and personal framing, and this repo is public. See CLAUDE.md.
+/plugin/

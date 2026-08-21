@@ -69,6 +69,32 @@ broken selector than a genuinely sparse product.
    think you have found a working endpoint, verify the returned star ratings actually match the
    requested filter before believing it — the old code "worked" and returned 5-star reviews.
 
+## There are TWO skill files and they are meant to differ
+
+| | Where | What it is |
+|---|---|---|
+| Repo skill | `.claude/skills/amazon-shopping/SKILL.md` | **Public and generic.** Source of truth for logic, findings and guidance |
+| Plugin skill | `plugin/skills/amazon-shopping/SKILL.md` | **Personal.** The operator's own build, distributed through their account's plugin store |
+
+The plugin variant names the operator's machines, addresses them directly, bundles `bin/orders.js`,
+and routes purchase history through its own `references/` rather than a repo checkout. **This
+divergence is correct — do not "fix" it by overwriting either file with the other.** The personal
+detail belongs in the plugin precisely because this repo is public; `plugin/` is gitignored for the
+same reason, and a skill file that names a real machine has no business being pushed here.
+
+What is NOT correct is drift: one file learning something the other never hears about. That is how
+the review-filter guidance outlived its accuracy and got a live session blocked. So:
+
+```bash
+node bin/skill-drift.js --check    # nonzero when one changed and the other didn't
+node bin/skill-drift.js --diff     # exactly what to carry across
+node bin/skill-drift.js --accept   # re-baseline once you have ported it
+```
+
+Baseline lives in `skill-sync.json` and stores **hashes only** — never the plugin's content.
+Porting is deliberately manual, because unlike `bin/vendor.js` there is no mechanical transform
+between the two: a human decides which changes are generic and which are personal.
+
 ## Order history
 
 `bin/orders.js` ingests Amazon's official *Request My Data* export into `store/`. Check
