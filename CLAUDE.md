@@ -36,11 +36,11 @@ broken selector than a genuinely sparse product.
 
 ## Rules
 
-1. **`@grant none` is load-bearing.** Adding any `GM_*` grant moves the script into Tampermonkey's
-   sandbox, where `window` is not the page's `window` and `__amzx` becomes invisible to an external
-   evaluator. The script then appears installed and working while its entire purpose fails
-   silently. If a GM API is ever genuinely needed, keep the grant *and* publish via
-   `unsafeWindow.__amzx = API`.
+1. **The `<script>`-tag loader is load-bearing.** Whether a userscript's `window` is the page's
+   `window` depends on how the extension injected it, which the script cannot observe. v0.1.0
+   trusted `@grant none` to mean main-world, installed cleanly, and left `__amzx` undefined with no
+   error anywhere. The loader stringifies the library into a `<script>` element, which always
+   evaluates in the main world because the DOM is shared. Do not simplify it to a direct call.
 
 2. **Selectors live only in `SEL`.** When a field breaks, add a candidate to that registry,
    most-specific first, most-durable last. Never move selector strings into the extraction
@@ -51,9 +51,9 @@ broken selector than a genuinely sparse product.
    Same sanitisation doctrine as OCRClaudeBridge: no real paths, no real order data, invented
    figures in docs.
 
-4. **Stay read-only.** DOM reads, plus same-origin GETs of pages the user could click to, only
-   under `{deep:true}`. No writes, no form submits, no cart/buy/checkout controls, no credentials,
-   no third-party hosts, no background crawling. Do not "just add" a cart helper.
+4. **Stay read-only, and network-free.** DOM reads of the page the caller navigated to, and
+   nothing else — no writes, no form submits, no cart/buy/checkout controls, no credentials, no
+   requests of any kind. (`{deep:true}` is gone; see rule 7.) Do not "just add" a cart helper.
 
 5. **Verify against the live site before believing a selector.** Every fix in v0.1.0 came from
    probing amazon.com, and three of them contradicted what the DOM was assumed to do:
@@ -61,13 +61,21 @@ broken selector than a genuinely sparse product.
    and `#acBadge_feature_div` contains a stylesheet on products with no badge. Reading the code is
    not verification.
 
-6. **Run `node tests/parse.test.js` after touching any parser.** Zero dependencies, plain node.
+6. **Run the suites after any change.** All zero-dependency, plain node:
+   `node tests/parse.test.js` (parsers), `node tests/orders.test.js` (order ingest),
+   `node tests/vendor.test.js` + `node bin/vendor.js --check` (the injected asset matches source),
+   `node bin/skill-drift.js --check` (the two skills are in step).
 
-7. **Do not re-add a fetch path.** It was tried and removed in v0.2.0. The all-offers AJAX
-   endpoints 404 in every URL shape; `?aod=1` over XHR omits the client-rendered panel; and
-   `filterByStar=critical` is ignored by Amazon over fetch *and* over real navigation. If you
-   think you have found a working endpoint, verify the returned star ratings actually match the
-   requested filter before believing it — the old code "worked" and returned 5-star reviews.
+7. **Do not re-add a fetch path — of either kind.** Sub-page fetching was removed in v0.2.0: the
+   all-offers AJAX endpoints 404 in every URL shape, and `?aod=1` over XHR omits the
+   client-rendered panel. Separately, **never fetch remote code and eval it** — a session was
+   blocked by a safety classifier for exactly that, correctly, and a denial must never be worked
+   around by rephrasing. Tier 2 injects the local vendored asset instead.
+
+   Reviews: **every** parameter is ignored, not just `critical`. `filterByStar=one_star` returns
+   eight 4-and-5-star reviews, and the cap is site-wide. If you think you have found a working
+   endpoint, check the returned stars actually match the filter before believing it — the old code
+   "worked" in the sense that it returned reviews.
 
 ## There are TWO skill files and they are meant to differ
 
