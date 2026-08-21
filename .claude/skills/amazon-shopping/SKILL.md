@@ -17,9 +17,9 @@ three or four products.
 This skill has two local dependencies, and a session that lacks them must say so rather than
 quietly doing something worse:
 
-1. **One of Sylvia's browsers**, reached through the `mcp__claude-in-chrome__*` tools. The
-   userscript is installed on both (**SylDesk**, the desktop, and **SylG5**, the laptop). It is
-   NOT installed in any sandboxed or cloud browser.
+1. **A browser with the userscript installed**, reached through the `mcp__claude-in-chrome__*`
+   tools. That means one of the operator's own browsers — it is NOT installed in any sandboxed or
+   cloud browser, so a hosted session will not have it.
 2. **`bin/orders.js` in this repo**, for purchase history. Needs a local filesystem and an
    ingested `store/`.
 
@@ -37,13 +37,14 @@ missing". Make this the first JS call of the session:
 |---|---|---|
 | returns `1` | JS execution works | continue to the `__amzx` check |
 | **`Permission for this action was denied by the … classifier`** | a safety classifier refused the payload | **do not retry, do not rephrase.** Name the refused call and stop |
-| **`javascript_tool did not respond in time`** | usually an unanswered permission prompt in the Chrome side panel | ask her to check the side panel. **One retry, then stop** |
+| **`javascript_tool did not respond in time`** | usually an unanswered permission prompt in the Chrome side panel | ask the user to check the side panel. **One retry, then stop** |
 
 Only once the probe returns `1`:
 
 - **`__amzx` is undefined** → you are not on a browser with the userscript. Go to the ladder
-  below. Do not conclude the tooling is broken; SylDesk and SylG5 both have it.
-- **No `mcp__claude-in-chrome__*` tools at all** → you cannot reach her browsers from this
+  below. Do not conclude the tooling is broken — a browser without it is the expected case in a
+  hosted or sandboxed environment.
+- **No `mcp__claude-in-chrome__*` tools at all** → you cannot reach the user's browsers from this
   environment. Report that plainly instead of substituting a different browser and implying the
   results are equivalent.
 - **No filesystem / no `store/`** → purchase-history answers are unavailable. Do not guess, and
@@ -57,8 +58,8 @@ those through as organic results is a real, material error.
 ### Getting `__amzx`: a three-tier ladder, in order
 
 **Tier 1 — the installed userscript. This is the happy path.** If `typeof __amzx !== 'undefined'`,
-use it. Zero cost, zero injection. Already true on **SylDesk** and **SylG5**, which is where most
-work happens. Try this first and expect it to succeed.
+use it. Zero cost, zero injection. This is the normal case on an operator's own machine, which is
+where most work happens. Try this first and expect it to succeed.
 
 **Tier 2 — inject the vendored copy.** If `__amzx` is undefined, read
 `assets/amzx.min.js` from this skill's own directory and evaluate that string in the page. It is
@@ -81,7 +82,7 @@ may read the page with ordinary browser tools as an explicitly labelled degraded
 
 **A signed-out browser gives different data.** Prices, Prime eligibility, delivery estimates and
 the `Purchased …` badge all depend on the session. If `#nav-link-accountList` reads "Sign in", say
-the figures are the signed-out view — do not sign in, and do not present them as hers.
+the figures are the signed-out view — do not sign in, and do not present them as the user's own.
 
 ## The loop
 
@@ -98,8 +99,8 @@ the figures are the signed-out view — do not sign in, and do not present them 
 3. Check `_missing` and `_warn`. If they're substantial, run `__amzx.health()` before trusting it.
 4. Report as a comparison table, not prose.
 
-If `__amzx` is undefined, the userscript isn't installed — say so and stop, rather than falling
-back to expensive page reads without telling the user why it got slow.
+If `__amzx` is undefined, work the three-tier ladder above — do not silently fall back to
+expensive raw page reads, and do not report the tooling as broken.
 
 ## Build search URLs directly
 
