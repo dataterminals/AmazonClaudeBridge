@@ -50,15 +50,24 @@ If `__amzx` is `undefined` on an Amazon page, see the `@grant none` note in *Mai
 
 ### The companion skill
 
-[`skill/SKILL.md`](skill/SKILL.md) is a Claude Code skill carrying the research playbook — the
-search-URL parameters worth building by hand, how to report a comparison, and a listing-vetting
-checklist. Install it at user scope:
+[`.claude/skills/amazon-shopping/SKILL.md`](.claude/skills/amazon-shopping/SKILL.md) carries the
+research playbook — the search-URL parameters worth building by hand, how to report a comparison,
+and a listing-vetting checklist.
+
+It lives **inside the repo** rather than at user scope, so it travels with the code it depends on:
+any session working in this checkout picks it up automatically, with no install step and nothing
+to re-sync after a pull. That includes environments that can only reach this repo by cloning it.
+
+To also have it available outside a checkout, copy it to user scope — but note that a
+user-scope copy is a *copy*, and drifts:
 
 ```bash
-mkdir -p ~/.claude/skills/amazon-shopping && cp skill/SKILL.md ~/.claude/skills/amazon-shopping/
+mkdir -p ~/.claude/skills/amazon-shopping && cp .claude/skills/amazon-shopping/SKILL.md ~/.claude/skills/amazon-shopping/
 ```
 
-It is a copy, not a link — re-run that after pulling changes.
+The skill opens with a preflight, because it depends on a browser holding the userscript and on a
+local `store/`. A session with neither is told to say so rather than silently substituting a
+different browser and presenting the results as equivalent.
 
 ## Scope, deliberately narrow
 

@@ -12,6 +12,33 @@ three or four products.
 
 **Never operate a cart, buy, checkout, or account control.** This skill researches. The user buys.
 
+## Preflight — check this before promising anything
+
+This skill has two local dependencies, and a session that lacks them must say so rather than
+quietly doing something worse:
+
+1. **One of Sylvia's browsers**, reached through the `mcp__claude-in-chrome__*` tools. The
+   userscript is installed on both (**SylDesk**, the desktop, and **SylG5**, the laptop). It is
+   NOT installed in any sandboxed or cloud browser.
+2. **`bin/orders.js` in this repo**, for purchase history. Needs a local filesystem and an
+   ingested `store/`.
+
+So:
+
+- **`__amzx` is undefined** → you are not on one of her browsers. Say which capability is missing.
+  You may still read the page with ordinary browser tools, but **say that you are doing it**, and
+  expect it to cost 10–30× the tokens.
+- **No `mcp__claude-in-chrome__*` tools at all** → you cannot reach her browsers from this
+  environment. Report that plainly instead of substituting a different browser and implying the
+  results are equivalent.
+- **No filesystem / no `store/`** → purchase-history answers are unavailable. Do not guess, and
+  do not scrape order pages.
+
+**Never present unverified data in the shape of a `__amzx` capture.** If you did not get results
+through the extractor, you do not know which entries were sponsored, and you must not claim ads
+were filtered. Ad density on a plain search runs about a quarter of the page, so silently passing
+those through as organic results is a real, material error.
+
 ## The loop
 
 0. If the Chrome tools are deferred, load them in **one** ToolSearch call — don't spend a
